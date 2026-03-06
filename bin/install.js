@@ -115,25 +115,6 @@ Then re-run: npx get-shit-done-cc@latest
   }
 }
 
-/**
- * Convert a pathPrefix (which uses absolute paths for global installs) to a
- * $HOME-relative form for replacing $HOME/.claude/ references in bash code blocks.
- * Preserves $HOME as a shell variable so paths remain portable across machines.
- */
-function toHomePrefix(pathPrefix) {
-  const home = os.homedir().replace(/\\/g, '/');
-  const normalized = pathPrefix.replace(/\\/g, '/');
-  if (normalized.startsWith(home)) {
-    return '$HOME' + normalized.slice(home.length);
-  }
-  // Convert tilde-based paths to $HOME-based paths for bash code blocks
-  if (normalized.startsWith('~/')) {
-    return '$HOME' + normalized.slice(1);
-  }
-  // For relative paths or paths not under $HOME, return as-is
-  return normalized;
-}
-
 // Helper to get directory name for a runtime (used for local/project installs)
 function getDirName(runtime) {
   if (runtime === 'copilot') return '.github';
@@ -941,15 +922,14 @@ function installCodexConfig(targetDir, agentsSrc) {
   const agentEntries = fs.readdirSync(agentsSrc).filter(f => f.startsWith('gsd-') && f.endsWith('.md'));
   const agents = [];
 
-  // Compute the Codex pathPrefix for replacing .claude paths
-  // Use tilde-based path to avoid baking absolute paths into templates
-  const codexPathPrefix = `${targetDir.replace(/\\/g, '/').replace(os.homedir().replace(/\\/g, '/'), '~')}/`;
+  // Compute the Codex GSD install path (absolute, so subagents with empty $HOME work — #820)
+  const codexGsdPath = `${path.resolve(targetDir, 'get-shit-done').replace(/\\/g, '/')}/`;
 
   for (const file of agentEntries) {
     let content = fs.readFileSync(path.join(agentsSrc, file), 'utf8');
-    // Replace .claude paths before generating TOML (source files use ~/.claude and $HOME/.claude)
-    content = content.replace(/~\/\.claude\//g, codexPathPrefix);
-    content = content.replace(/\$HOME\/\.claude\//g, toHomePrefix(codexPathPrefix));
+    // Replace full .claude/get-shit-done prefix so path resolves to codex GSD install
+    content = content.replace(/~\/\.claude\/get-shit-done\//g, codexGsdPath);
+    content = content.replace(/\$HOME\/\.claude\/get-shit-done\//g, codexGsdPath);
     const { frontmatter } = extractFrontmatterAndBody(content);
     const name = extractFrontmatterField(frontmatter, 'name') || file.replace('.md', '');
     const description = extractFrontmatterField(frontmatter, 'description') || '';
@@ -1306,7 +1286,7 @@ function copyFlattenedCommands(srcDir, destDir, prefix, pathPrefix, runtime) {
       const localClaudeRegex = /\.\/\.claude\//g;
       const opencodeDirRegex = /~\/\.opencode\//g;
       content = content.replace(globalClaudeRegex, pathPrefix);
-      content = content.replace(globalClaudeHomeRegex, toHomePrefix(pathPrefix));
+      content = content.replace(globalClaudeHomeRegex, pathPrefix);
       content = content.replace(localClaudeRegex, `./${getDirName(runtime)}/`);
       content = content.replace(opencodeDirRegex, pathPrefix);
       content = processAttribution(content, getCommitAttribution(runtime));
@@ -1367,7 +1347,7 @@ function copyCommandsAsCodexSkills(srcDir, skillsDir, prefix, pathPrefix, runtim
       const localClaudeRegex = /\.\/\.claude\//g;
       const codexDirRegex = /~\/\.codex\//g;
       content = content.replace(globalClaudeRegex, pathPrefix);
-      content = content.replace(globalClaudeHomeRegex, toHomePrefix(pathPrefix));
+      content = content.replace(globalClaudeHomeRegex, pathPrefix);
       content = content.replace(localClaudeRegex, `./${getDirName(runtime)}/`);
       content = content.replace(codexDirRegex, pathPrefix);
       content = processAttribution(content, getCommitAttribution(runtime));
@@ -1466,7 +1446,7 @@ function copyWithPathReplacement(srcDir, destDir, pathPrefix, runtime, isCommand
         const globalClaudeHomeRegex = /\$HOME\/\.claude\//g;
         const localClaudeRegex = /\.\/\.claude\//g;
         content = content.replace(globalClaudeRegex, pathPrefix);
-        content = content.replace(globalClaudeHomeRegex, toHomePrefix(pathPrefix));
+        content = content.replace(globalClaudeHomeRegex, pathPrefix);
         content = content.replace(localClaudeRegex, `./${dirName}/`);
       }
       content = processAttribution(content, getCommitAttribution(runtime));
@@ -2259,13 +2239,11 @@ function install(isGlobal, runtime = 'claude') {
     ? targetDir.replace(os.homedir(), '~')
     : targetDir.replace(process.cwd(), '.');
 
-  // Path prefix for file references in markdown content
-  // For global installs: use tilde-based path (~/.claude/) to avoid baking
-  // absolute paths (containing OS username) into templates
-  // For local installs: use relative
-  const pathPrefix = isGlobal
-    ? `${targetDir.replace(/\\/g, '/').replace(os.homedir().replace(/\\/g, '/'), '~')}/`
-    : `./${dirName}/`;
+  // Path prefix for file references in markdown content (e.g. gsd-tools.cjs).
+  // Replaces $HOME/.claude/ or ~/.claude/ so the result is <pathPrefix>get-shit-done/bin/...
+  // Always use absolute path so: (1) local installs work when GSD is outside $HOME,
+  // (2) spawned subagents with empty $HOME still resolve the path (fixes #820).
+  const pathPrefix = `${path.resolve(targetDir).replace(/\\/g, '/')}/`;
 
   let runtimeLabel = 'Claude Code';
   if (isOpencode) runtimeLabel = 'OpenCode';
@@ -2374,7 +2352,7 @@ function install(isGlobal, runtime = 'claude') {
         const homeDirRegex = /\$HOME\/\.claude\//g;
         if (!isCopilot) {
           content = content.replace(dirRegex, pathPrefix);
-          content = content.replace(homeDirRegex, toHomePrefix(pathPrefix));
+          content = content.replace(homeDirRegex, pathPrefix);
         }
         content = processAttribution(content, getCommitAttribution(runtime));
         // Convert frontmatter for runtime compatibility (agents need different handling)

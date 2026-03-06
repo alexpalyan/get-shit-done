@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - OpenCode agent frontmatter conversion — agents now get correct `name:`, `model: inherit`, `mode: subagent` instead of broken command-style conversion that stripped name and kept `color:`/`skills:`/`tools:`
+- Local install: workflow and reference files now get absolute path to `gsd-tools.cjs` instead of `$HOME/.claude/get-shit-done/`, so local installs work when GSD is outside `$HOME` and spawned subagents with empty `$HOME` still resolve the path (#820)
 
 ## [1.23.0] - 2026-03-15
 
