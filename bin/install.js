@@ -81,6 +81,40 @@ if (hasAll) {
   if (hasCopilot) selectedRuntimes.push('copilot');
 }
 
+// WSL + Windows Node.js detection
+// When Windows-native Node runs on WSL, os.homedir() and path.join() produce
+// backslash paths that don't resolve correctly on the Linux filesystem.
+if (process.platform === 'win32') {
+  let isWSL = false;
+  try {
+    if (process.env.WSL_DISTRO_NAME) {
+      isWSL = true;
+    } else if (fs.existsSync('/proc/version')) {
+      const procVersion = fs.readFileSync('/proc/version', 'utf8').toLowerCase();
+      if (procVersion.includes('microsoft') || procVersion.includes('wsl')) {
+        isWSL = true;
+      }
+    }
+  } catch {
+    // Ignore read errors — not WSL
+  }
+
+  if (isWSL) {
+    console.error(`
+${yellow}⚠ Detected WSL with Windows-native Node.js.${reset}
+
+This causes path resolution issues that prevent correct installation.
+Please install a Linux-native Node.js inside WSL:
+
+  curl -fsSL https://fnm.vercel.app/install | bash
+  fnm install --lts
+
+Then re-run: npx get-shit-done-cc@latest
+`);
+    process.exit(1);
+  }
+}
+
 /**
  * Convert a pathPrefix (which uses absolute paths for global installs) to a
  * $HOME-relative form for replacing $HOME/.claude/ references in bash code blocks.
