@@ -233,6 +233,82 @@ describe('CLAUDEMD: CLAUDE.md compliance enforcement', () => {
   });
 });
 
+// ─── Verification Data-Flow and Environment Audit (#1245) ────────────────────
+
+describe('VERIFY: data-flow trace, environment audit, and behavioral spot-checks', () => {
+  test('gsd-verifier has Step 4b: Data-Flow Trace', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gsd-verifier.md'), 'utf-8');
+    assert.ok(
+      content.includes('Step 4b: Data-Flow Trace'),
+      'gsd-verifier must have Step 4b for data-flow tracing'
+    );
+    assert.ok(
+      content.includes('HOLLOW'),
+      'gsd-verifier must define HOLLOW status for wired-but-disconnected artifacts'
+    );
+    assert.ok(
+      content.includes('DISCONNECTED'),
+      'gsd-verifier must define DISCONNECTED status for missing data sources'
+    );
+  });
+
+  test('gsd-verifier has Step 7b: Behavioral Spot-Checks', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gsd-verifier.md'), 'utf-8');
+    assert.ok(
+      content.includes('Step 7b: Behavioral Spot-Checks'),
+      'gsd-verifier must have Step 7b for behavioral spot-checks'
+    );
+    assert.ok(
+      content.includes('SKIP'),
+      'gsd-verifier spot-checks must support SKIP status for untestable items'
+    );
+  });
+
+  test('gsd-verifier VERIFICATION.md template includes data-flow and spot-check sections', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gsd-verifier.md'), 'utf-8');
+    assert.ok(
+      content.includes('Data-Flow Trace (Level 4)'),
+      'VERIFICATION.md template must include Data-Flow Trace section'
+    );
+    assert.ok(
+      content.includes('Behavioral Spot-Checks'),
+      'VERIFICATION.md template must include Behavioral Spot-Checks section'
+    );
+  });
+
+  test('gsd-verifier success criteria include data-flow and spot-checks', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gsd-verifier.md'), 'utf-8');
+    assert.ok(
+      content.includes('Data-flow trace (Level 4)'),
+      'success criteria must include data-flow trace step'
+    );
+    assert.ok(
+      content.includes('Behavioral spot-checks run'),
+      'success criteria must include behavioral spot-checks step'
+    );
+  });
+
+  test('gsd-phase-researcher has Step 2.6: Environment Availability Audit', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gsd-phase-researcher.md'), 'utf-8');
+    assert.ok(
+      content.includes('Step 2.6: Environment Availability Audit'),
+      'gsd-phase-researcher must have Step 2.6 for environment availability auditing'
+    );
+    assert.ok(
+      content.includes('Environment Availability'),
+      'gsd-phase-researcher must include Environment Availability section in RESEARCH.md template'
+    );
+  });
+
+  test('gsd-phase-researcher success criteria include environment audit', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gsd-phase-researcher.md'), 'utf-8');
+    assert.ok(
+      content.includes('Environment availability audited'),
+      'success criteria must include environment availability audit step'
+    );
+  });
+});
+
 // ─── Discussion Log ──────────────────────────────────────────────────────────
 
 describe('DISCUSS: discussion log generation', () => {
