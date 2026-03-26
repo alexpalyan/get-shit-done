@@ -7,9 +7,11 @@
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage, SDKResultMessage, SDKResultSuccess, SDKResultError } from '@anthropic-ai/claude-agent-sdk';
-import type { ParsedPlan, PlanResult, SessionOptions, SessionUsage } from './types.js';
+import type { ParsedPlan, PlanResult, SessionOptions, SessionUsage, GSDCostUpdateEvent } from './types.js';
+import { GSDEventType } from './types.js';
 import type { GSDConfig } from './config.js';
 import { buildExecutorPrompt, parseAgentTools, DEFAULT_ALLOWED_TOOLS } from './prompt-builder.js';
+import type { GSDEventStream, EventStreamContext } from './event-stream.js';
 
 // ─── Model resolution ────────────────────────────────────────────────────────
 
@@ -54,6 +56,8 @@ export async function runPlanSession(
   config: GSDConfig,
   options?: SessionOptions,
   agentDef?: string,
+  eventStream?: GSDEventStream,
+  streamContext?: EventStreamContext,
 ): Promise<PlanResult> {
   // Build the executor prompt
   const executorPrompt = buildExecutorPrompt(plan, agentDef);
@@ -94,6 +98,11 @@ export async function runPlanSession(
 
   try {
     for await (const message of queryStream) {
+      // Emit event through the stream if provided
+      if (eventStream) {
+        eventStream.mapAndEmit(message, streamContext ?? {});
+      }
+
       // We only care about the result message — it contains all metrics
       if (isResultMessage(message)) {
         resultMessage = message;
@@ -132,7 +141,23 @@ export async function runPlanSession(
   }
 
   // Extract result
-  return extractResult(resultMessage);
+  const result = extractResult(resultMessage);
+
+  // Emit a cost_update event with session and cumulative totals
+  if (eventStream) {
+    const cost = eventStream.getCost();
+    eventStream.emitEvent({
+      type: GSDEventType.CostUpdate,
+      timestamp: new Date().toISOString(),
+      sessionId: resultMessage.session_id,
+      phase: streamContext?.phase,
+      planName: streamContext?.planName,
+      sessionCostUsd: result.totalCostUsd,
+      cumulativeCostUsd: cost.cumulative,
+    } as GSDCostUpdateEvent);
+  }
+
+  return result;
 }
 
 // ─── Result extraction ───────────────────────────────────────────────────────

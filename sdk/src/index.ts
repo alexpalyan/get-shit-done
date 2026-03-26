@@ -23,12 +23,13 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
-import type { GSDOptions, PlanResult, SessionOptions } from './types.js';
+import type { GSDOptions, PlanResult, SessionOptions, GSDEvent, TransportHandler } from './types.js';
 import { parsePlan, parsePlanFile } from './plan-parser.js';
 import { loadConfig } from './config.js';
 import { GSDTools } from './gsd-tools.js';
 import { runPlanSession } from './session-runner.js';
 import { buildExecutorPrompt, parseAgentTools } from './prompt-builder.js';
+import { GSDEventStream } from './event-stream.js';
 
 // ─── GSD class ───────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export class GSD {
   private readonly defaultModel?: string;
   private readonly defaultMaxBudgetUsd: number;
   private readonly defaultMaxTurns: number;
+  readonly eventStream: GSDEventStream;
 
   constructor(options: GSDOptions) {
     this.projectDir = resolve(options.projectDir);
@@ -47,6 +49,7 @@ export class GSD {
     this.defaultModel = options.model;
     this.defaultMaxBudgetUsd = options.maxBudgetUsd ?? 5.0;
     this.defaultMaxTurns = options.maxTurns ?? 50;
+    this.eventStream = new GSDEventStream();
   }
 
   /**
@@ -81,7 +84,25 @@ export class GSD {
       allowedTools: options?.allowedTools,
     };
 
-    return runPlanSession(plan, config, sessionOptions, agentDef);
+    return runPlanSession(plan, config, sessionOptions, agentDef, this.eventStream, {
+      phase: undefined, // Phase context set by higher-level orchestrators
+      planName: plan.frontmatter.plan,
+    });
+  }
+
+  /**
+   * Subscribe a simple handler to receive all GSD events.
+   */
+  onEvent(handler: (event: GSDEvent) => void): void {
+    this.eventStream.on('event', handler);
+  }
+
+  /**
+   * Subscribe a transport handler to receive all GSD events.
+   * Transports provide structured onEvent/close lifecycle.
+   */
+  addTransport(handler: TransportHandler): void {
+    this.eventStream.addTransport(handler);
   }
 
   /**
@@ -125,3 +146,13 @@ export { GSDTools, GSDToolsError } from './gsd-tools.js';
 export { runPlanSession } from './session-runner.js';
 export { buildExecutorPrompt, parseAgentTools } from './prompt-builder.js';
 export * from './types.js';
+
+// S02: Event stream, context, prompt, and logging modules
+export { GSDEventStream } from './event-stream.js';
+export type { EventStreamContext } from './event-stream.js';
+export { ContextEngine, PHASE_FILE_MANIFEST } from './context-engine.js';
+export type { FileSpec } from './context-engine.js';
+export { getToolsForPhase, PHASE_AGENT_MAP, PHASE_DEFAULT_TOOLS } from './tool-scoping.js';
+export { PromptFactory, extractBlock, extractSteps, PHASE_WORKFLOW_MAP } from './phase-prompt.js';
+export { GSDLogger } from './logger.js';
+export type { LogLevel, LogEntry, GSDLoggerOptions } from './logger.js';
