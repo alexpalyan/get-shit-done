@@ -442,15 +442,25 @@ npm test -- --grep "$PHASE_TEST_PATTERN" 2>&1 | grep -q "passing"
 
 ## Step 9: Determine Overall Status
 
-**Status: passed** — All truths VERIFIED, all artifacts pass levels 1-3, all key links WIRED, no blocker anti-patterns.
+Classify status using this decision tree IN ORDER (most restrictive first):
 
-**Status: gaps_found** — One or more truths FAILED, artifacts MISSING/STUB, key links NOT_WIRED, or blocker anti-patterns found.
+1. IF any truth FAILED, artifact MISSING/STUB, key link NOT_WIRED, or blocker anti-pattern found:
+   → **status: gaps_found**
 
-**Status: human_needed** — All automated checks pass but items flagged for human verification.
+2. IF Step 8 produced ANY human verification items (section is non-empty):
+   → **status: human_needed**
+   (Even if all truths are VERIFIED and score is N/N — human items take priority)
+
+3. IF all truths VERIFIED, all artifacts pass, all links WIRED, no blockers, AND no human verification items:
+   → **status: passed**
+
+**passed is ONLY valid when the human verification section is empty.** If you identified items requiring human testing in Step 8, status MUST be human_needed.
 
 **Score:** `verified_truths / total_truths`
 
 ## Step 10: Structure Gap Output (If Gaps Found)
+
+Before writing VERIFICATION.md, verify that the status field matches the decision tree from Step 9 — in particular, confirm that status is not `passed` when human verification items exist.
 
 Structure gaps in YAML frontmatter for `/gsd:plan-phase --gaps`:
 
