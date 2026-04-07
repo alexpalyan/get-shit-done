@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { escapeRegex, loadConfig, getMilestoneInfo, getMilestonePhaseFilter, normalizeMd, planningDir, planningPaths, output, error } = require('./core.cjs');
+const { escapeRegex, loadConfig, getMilestoneInfo, getMilestonePhaseFilter, normalizeMd, planningDir, planningPaths, output, error, atomicWriteFileSync } = require('./core.cjs');
 const { extractFrontmatter, reconstructFrontmatter } = require('./frontmatter.cjs');
 
 /** Shorthand — every state command needs this path */
@@ -845,7 +845,7 @@ function writeStateMd(statePath, content, cwd) {
   const synced = syncStateFrontmatter(content, cwd);
   const lockPath = acquireStateLock(statePath);
   try {
-    fs.writeFileSync(statePath, normalizeMd(synced), 'utf-8');
+    atomicWriteFileSync(statePath, normalizeMd(synced), 'utf-8');
   } finally {
     releaseStateLock(lockPath);
   }
@@ -863,7 +863,7 @@ function readModifyWriteStateMd(statePath, transformFn, cwd) {
     const content = fs.existsSync(statePath) ? fs.readFileSync(statePath, 'utf-8') : '';
     const modified = transformFn(content);
     const synced = syncStateFrontmatter(modified, cwd);
-    fs.writeFileSync(statePath, normalizeMd(synced), 'utf-8');
+    atomicWriteFileSync(statePath, normalizeMd(synced), 'utf-8');
   } finally {
     releaseStateLock(lockPath);
   }

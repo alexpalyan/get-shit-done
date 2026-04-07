@@ -1491,6 +1491,38 @@ function readSubdirectories(dirPath, sort = false) {
   }
 }
 
+// ─── Atomic file writes ───────────────────────────────────────────────────────
+
+/**
+ * Write a file atomically using write-to-temp-then-rename.
+ *
+ * On POSIX systems, `fs.renameSync` is atomic when the source and destination
+ * are on the same filesystem. This prevents a process killed mid-write from
+ * leaving a truncated file that is unparseable on next read.
+ *
+ * The temp file is placed alongside the target so it is guaranteed to be on
+ * the same filesystem (required for rename atomicity). The PID is embedded in
+ * the temp file name so concurrent writers use distinct paths.
+ *
+ * If `renameSync` fails (e.g. cross-device move), the function falls back to a
+ * direct `writeFileSync` so callers always get a best-effort write.
+ *
+ * @param {string} filePath  Absolute path to write.
+ * @param {string|Buffer} content  File content.
+ * @param {string} [encoding='utf-8']  Encoding passed to writeFileSync.
+ */
+function atomicWriteFileSync(filePath, content, encoding = 'utf-8') {
+  const tmpPath = filePath + '.tmp.' + process.pid;
+  try {
+    fs.writeFileSync(tmpPath, content, encoding);
+    fs.renameSync(tmpPath, filePath);
+  } catch (renameErr) {
+    // Clean up the temp file if rename failed, then fall back to direct write.
+    try { fs.unlinkSync(tmpPath); } catch { /* already gone or never created */ }
+    fs.writeFileSync(filePath, content, encoding);
+  }
+}
+
 module.exports = {
   output,
   error,
@@ -1536,4 +1568,5 @@ module.exports = {
   readSubdirectories,
   getAgentsDir,
   checkAgentsInstalled,
+  atomicWriteFileSync,
 };

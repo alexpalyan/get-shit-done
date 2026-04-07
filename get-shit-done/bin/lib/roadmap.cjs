@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { escapeRegex, normalizePhaseName, planningPaths, withPlanningLock, output, error, findPhaseInternal, stripShippedMilestones, extractCurrentMilestone, replaceInCurrentMilestone, phaseTokenMatches } = require('./core.cjs');
+const { escapeRegex, normalizePhaseName, planningPaths, withPlanningLock, output, error, findPhaseInternal, stripShippedMilestones, extractCurrentMilestone, replaceInCurrentMilestone, phaseTokenMatches, atomicWriteFileSync } = require('./core.cjs');
 
 /**
  * Search for a phase header (and its section) within the given content string.
@@ -341,7 +341,7 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
       roadmapContent = roadmapContent.replace(planCheckboxPattern, '$1x$2');
     }
 
-    fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+    atomicWriteFileSync(roadmapPath, roadmapContent, 'utf-8');
   });
   output({
     updated: true,

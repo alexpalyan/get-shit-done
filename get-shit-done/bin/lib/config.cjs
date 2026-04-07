@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, planningRoot, CONFIG_DEFAULTS } = require('./core.cjs');
+const { output, error, planningRoot, CONFIG_DEFAULTS, atomicWriteFileSync } = require('./core.cjs');
 const {
   VALID_PROFILES,
   getAgentToModelMapForProfile,
@@ -227,7 +227,7 @@ function cmdConfigNewProject(cwd, choicesJson, raw) {
   const config = buildNewProjectConfig(userChoices);
 
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    atomicWriteFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
     output({ created: true, path: '.planning/config.json' }, raw, 'created');
   } catch (err) {
     error('Failed to write config.json: ' + err.message);
@@ -261,7 +261,7 @@ function ensureConfigFile(cwd) {
   const config = buildNewProjectConfig({});
 
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    atomicWriteFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
     return { created: true, path: '.planning/config.json' };
   } catch (err) {
     error('Failed to create config.json: ' + err.message);
@@ -318,7 +318,7 @@ function setConfigValue(cwd, keyPath, parsedValue) {
 
   // Write back
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    atomicWriteFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
     return { updated: true, key: keyPath, value: parsedValue, previousValue };
   } catch (err) {
     error('Failed to write config.json: ' + err.message);
