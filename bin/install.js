@@ -3398,6 +3398,50 @@ function stripSubTags(content) {
  * - skills: must be removed (causes validation error)
  * - mcp__* tools: must be excluded (auto-discovered at runtime)
  */
+let _gsdCommandRoster = null;
+
+/**
+ * Get the list of known GSD commands from the source directory.
+ * Caches the result after the first scan.
+ * @returns {Set<string>} Set of command names (without .md extension)
+ */
+function getGsdCommandRoster() {
+  if (_gsdCommandRoster) return _gsdCommandRoster;
+  const baseDir = (typeof __dirname !== 'undefined') ? __dirname : process.cwd();
+  const gsdSrc = path.join(baseDir, '..', 'commands', 'gsd');
+  if (fs.existsSync(gsdSrc)) {
+    _gsdCommandRoster = new Set(
+      fs.readdirSync(gsdSrc)
+        .filter(f => f.endsWith('.md'))
+        .map(f => f.replace('.md', ''))
+    );
+  } else {
+    _gsdCommandRoster = new Set();
+  }
+  return _gsdCommandRoster;
+}
+
+function convertSlashCommandsToGeminiMentions(content) {
+  const commands = getGsdCommandRoster();
+  // Convert /gsd-command to /gsd:command ONLY if it exists in the source roster.
+  // This provides absolute protection for file paths, URLs, and other false positives.
+  return content.replace(/\/gsd-([a-z0-9-]+)/gi, (match, commandName) => {
+    return commands.has(commandName) ? `/gsd:${commandName}` : match;
+  });
+}
+
+function convertClaudeToGeminiMarkdown(content, { isCommand = false } = {}) {
+  // Apply Gemini-specific slash command namespacing
+  let converted = convertSlashCommandsToGeminiMentions(content);
+
+  if (isCommand) {
+    // Convert to Gemini TOML format
+    converted = convertClaudeToGeminiToml(converted);
+  }
+
+  return converted;
+}
+
 function convertClaudeToGeminiAgent(content) {
   if (!content.startsWith('---')) return content;
 
@@ -3490,7 +3534,10 @@ function convertClaudeToGeminiAgent(content) {
 
   // Runtime-neutral agent name replacement (#766)
   const neutralBody = neutralizeAgentReferences(escapedBody, 'GEMINI.md');
-  return `---\n${newFrontmatter}\n---${stripSubTags(neutralBody)}`;
+  // Apply Gemini-specific transformations (slash commands)
+  const geminiBody = convertClaudeToGeminiMarkdown(neutralBody);
+  // Strip HTML subscript tags — terminals can't render them
+  return `---\n${newFrontmatter}\n---${stripSubTags(geminiBody)}`;
 }
 
 function convertClaudeToOpencodeFrontmatter(content, { isAgent = false, modelOverride = null } = {}) {
@@ -4439,10 +4486,13 @@ function restoreUserArtifacts(destDir, saved) {
  * @param {string} destDir - Destination directory
  * @param {string} pathPrefix - Path prefix for file references
  * @param {string} runtime - Target runtime ('claude', 'opencode', 'gemini', 'codex')
+ * @param {boolean} isCommand - Whether the source is a command directory
+ * @param {boolean} isGlobal - Whether the install is global
  */
 function copyWithPathReplacement(srcDir, destDir, pathPrefix, runtime, isCommand = false, isGlobal = false) {
   const isOpencode = runtime === 'opencode';
   const isKilo = runtime === 'kilo';
+  const isGemini = runtime === 'gemini';
   const isCodex = runtime === 'codex';
   const isCopilot = runtime === 'copilot';
   const isAntigravity = runtime === 'antigravity';
@@ -4491,17 +4541,11 @@ function copyWithPathReplacement(srcDir, destDir, pathPrefix, runtime, isCommand
           ? convertClaudeToKiloFrontmatter(content)
           : convertClaudeToOpencodeFrontmatter(content);
         fs.writeFileSync(destPath, content);
-      } else if (runtime === 'gemini') {
-        if (isCommand) {
-          // Convert to TOML for Gemini (strip <sub> tags — terminals can't render subscript)
-          content = stripSubTags(content);
-          const tomlContent = convertClaudeToGeminiToml(content);
-          // Replace extension with .toml
-          const tomlPath = destPath.replace(/\.md$/, '.toml');
-          fs.writeFileSync(tomlPath, tomlContent);
-        } else {
-          fs.writeFileSync(destPath, content);
-        }
+      } else if (isGemini) {
+        // Apply Gemini-specific Markdown transformations (slash commands, TOML)
+        const processed = convertClaudeToGeminiMarkdown(content, { isCommand });
+        const finalPath = isCommand ? destPath.replace(/\.md$/, '.toml') : destPath;
+        fs.writeFileSync(finalPath, processed);
       } else if (isCodex) {
         content = convertClaudeToCodexMarkdown(content);
         fs.writeFileSync(destPath, content);
@@ -5704,8 +5748,10 @@ function reportLocalPatches(configDir, runtime = 'claude') {
   if (meta.files && meta.files.length > 0) {
     const reapplyCommand = (runtime === 'opencode' || runtime === 'kilo' || runtime === 'copilot')
       ? '/gsd-reapply-patches'
-      : runtime === 'codex'
-        ? '$gsd-reapply-patches'
+      : runtime === 'gemini'
+        ? '/gsd:reapply-patches'
+        : runtime === 'codex'
+          ? '$gsd-reapply-patches'
         : runtime === 'cursor'
           ? 'gsd-reapply-patches (mention the skill name)'
           : '/gsd-reapply-patches';
@@ -6757,6 +6803,7 @@ function finishInstall(settingsPath, settings, statuslineCommand, shouldInstallS
   let command = '/gsd-new-project';
   if (runtime === 'opencode') command = '/gsd-new-project';
   if (runtime === 'kilo') command = '/gsd-new-project';
+  if (runtime === 'gemini') command = '/gsd:new-project';
   if (runtime === 'codex') command = '$gsd-new-project';
   if (runtime === 'copilot') command = '/gsd-new-project';
   if (runtime === 'antigravity') command = '/gsd-new-project';
@@ -7313,6 +7360,8 @@ if (process.env.GSD_TEST_MODE) {
     getCodexSkillAdapterHeader,
     convertClaudeCommandToCursorSkill,
     convertClaudeAgentToCursorAgent,
+    convertClaudeToGeminiMarkdown,
+    convertSlashCommandsToGeminiMentions,
     convertClaudeToGeminiAgent,
     convertClaudeAgentToCodexAgent,
     generateCodexAgentToml,
