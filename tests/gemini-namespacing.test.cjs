@@ -22,6 +22,26 @@ const {
   install
 } = require('../bin/install.js');
 
+/**
+ * Minimal parser for the simple TOML emitted by convertClaudeToGeminiToml —
+ * exactly two top-level keys (`description` and `prompt`), each a JSON-quoted
+ * string. Throws on unparseable lines so a regression in the emitter shape
+ * fails loudly rather than silently mis-parsing.
+ */
+function parseGeminiCommandToml(toml) {
+  const result = {};
+  for (const rawLine of toml.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = line.match(/^([a-z_]+)\s*=\s*(.*)$/);
+    if (!match) throw new Error(`Unparseable TOML line: ${rawLine}`);
+    const [, key, value] = match;
+    // Values are JSON-encoded strings — JSON.parse handles all escapes.
+    result[key] = JSON.parse(value);
+  }
+  return result;
+}
+
 describe('Gemini Slash Command Namespacing (Regex)', () => {
   test('converts simple slash commands', () => {
     const input = 'Run /gsd-plan-phase to start.';
@@ -93,8 +113,20 @@ describe('Gemini Markdown Processor', () => {
   test('handles command to TOML conversion', () => {
     const input = '---\ndescription: Test\n---\nRun /gsd-help.';
     const result = convertClaudeToGeminiMarkdown(input, { isCommand: true });
-    assert.ok(result.includes('description = "Test"'), 'Should contain TOML description');
-    assert.ok(result.includes('/gsd:help'), 'Should contain namespaced command');
+    const parsed = parseGeminiCommandToml(result);
+    assert.equal(parsed.description, 'Test', 'description must round-trip through TOML');
+    assert.match(parsed.prompt, /\/gsd:help/, 'prompt must contain namespaced command');
+    assert.doesNotMatch(parsed.prompt, /\/gsd-help/, 'prompt must not retain hyphen form');
+  });
+
+  test('strips <sub> tags from Gemini markdown output (#2768 regression)', () => {
+    // The pre-refactor command path called stripSubTags before TOML conversion.
+    // After centralizing through convertClaudeToGeminiMarkdown, sub tags must
+    // still be stripped — terminals can't render HTML subscript.
+    const input = 'Run <sub>tiny</sub> /gsd-help now.';
+    const result = convertClaudeToGeminiMarkdown(input, { isCommand: false });
+    assert.doesNotMatch(result, /<sub>|<\/sub>/, '<sub> tags must be stripped');
+    assert.match(result, /\/gsd:help/, 'slash command must still be converted');
   });
 });
 
@@ -122,13 +154,24 @@ describe('Gemini Install (Behavioral)', () => {
     } finally {
       console.log = oldLog;
     }
-    
-    // Check if commands are in gsd/ folder inside .gemini/
+
     const commandsDir = path.join(tmpDir, '.gemini', 'commands', 'gsd');
     assert.ok(fs.existsSync(commandsDir), `Commands should be in ${commandsDir}`);
-    
-    // Check if agents are installed
     const agentsDir = path.join(tmpDir, '.gemini', 'agents');
     assert.ok(fs.existsSync(agentsDir), 'Agents should be installed');
+
+    // Structurally verify a real installed command artifact: parse the TOML
+    // and assert the prompt body has been namespaced. A directory-only check
+    // would pass even if every conversion silently no-op'd.
+    const planPhaseToml = path.join(commandsDir, 'plan-phase.toml');
+    assert.ok(fs.existsSync(planPhaseToml), 'plan-phase.toml must be installed');
+    const parsed = parseGeminiCommandToml(fs.readFileSync(planPhaseToml, 'utf8'));
+    assert.equal(typeof parsed.prompt, 'string', 'plan-phase.toml must have a prompt');
+    // The plan-phase prompt cross-references other GSD commands; pin that at
+    // least one of those references survived as a colon-namespaced mention.
+    assert.match(parsed.prompt, /\/gsd:[a-z][a-z0-9-]*/,
+      'installed plan-phase.toml prompt must contain at least one /gsd: reference');
+    assert.doesNotMatch(parsed.prompt, /(?<![A-Za-z0-9./])\/gsd-plan-phase\b/,
+      'installed plan-phase.toml prompt must not retain unconverted /gsd-plan-phase');
   });
 });

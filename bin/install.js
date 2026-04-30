@@ -3464,6 +3464,9 @@ function convertSlashCommandsToGeminiMentions(content) {
 function convertClaudeToGeminiMarkdown(content, { isCommand = false } = {}) {
   // Apply Gemini-specific slash command namespacing
   let converted = convertSlashCommandsToGeminiMentions(content);
+  // Strip HTML subscript tags — terminals can't render them. Done before
+  // TOML conversion so the prompt body of a command file is also clean.
+  converted = stripSubTags(converted);
 
   if (isCommand) {
     // Convert to Gemini TOML format
@@ -3565,10 +3568,9 @@ function convertClaudeToGeminiAgent(content) {
 
   // Runtime-neutral agent name replacement (#766)
   const neutralBody = neutralizeAgentReferences(escapedBody, 'GEMINI.md');
-  // Apply Gemini-specific transformations (slash commands)
+  // Apply Gemini-specific transformations (slash commands + sub-tag stripping)
   const geminiBody = convertClaudeToGeminiMarkdown(neutralBody);
-  // Strip HTML subscript tags — terminals can't render them
-  return `---\n${newFrontmatter}\n---${stripSubTags(geminiBody)}`;
+  return `---\n${newFrontmatter}\n---${geminiBody}`;
 }
 
 function convertClaudeToOpencodeFrontmatter(content, { isAgent = false, modelOverride = null } = {}) {
