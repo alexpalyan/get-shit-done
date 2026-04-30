@@ -3399,10 +3399,14 @@ function stripSubTags(content) {
  * - mcp__* tools: must be excluded (auto-discovered at runtime)
  */
 let _gsdCommandRoster = null;
+let _gsdCommandRosterWarned = false;
 
 /**
  * Get the list of known GSD commands from the source directory.
- * Caches the result after the first scan.
+ * Caches the result after the first scan. Emits a one-shot warning if the
+ * source directory cannot be located — an empty roster silently neutralises
+ * every Gemini slash-command conversion, which is the bug this code exists
+ * to prevent. The warning is gated on GSD_TEST_MODE to keep test output clean.
  * @returns {Set<string>} Set of command names (without .md extension)
  */
 function getGsdCommandRoster() {
@@ -3417,15 +3421,42 @@ function getGsdCommandRoster() {
     );
   } else {
     _gsdCommandRoster = new Set();
+    if (!_gsdCommandRosterWarned && !process.env.GSD_TEST_MODE) {
+      _gsdCommandRosterWarned = true;
+      console.warn(
+        `WARNING: GSD command roster not found at ${gsdSrc}. ` +
+        `Gemini /gsd- → /gsd: conversion will be a no-op. ` +
+        `This usually means the package was installed without commands/gsd/.`
+      );
+    }
   }
   return _gsdCommandRoster;
 }
 
+// Test-only: reset the cached roster. Exported via GSD_TEST_MODE bundle below.
+function _resetGsdCommandRoster() {
+  _gsdCommandRoster = null;
+  _gsdCommandRosterWarned = false;
+}
+
 function convertSlashCommandsToGeminiMentions(content) {
   const commands = getGsdCommandRoster();
-  // Convert /gsd-command to /gsd:command ONLY if it exists in the source roster.
-  // This provides absolute protection for file paths, URLs, and other false positives.
-  return content.replace(/\/gsd-([a-z0-9-]+)/gi, (match, commandName) => {
+  // Defense in depth: regex boundary AND roster lookup must both agree.
+  //
+  // - Lookbehind `(?<![A-Za-z0-9./])` rejects URLs (`example.com/gsd-…`),
+  //   sub-paths (`bin/gsd-…`), and root-relative file paths preceded by a
+  //   path char. Without it the roster alone is insufficient: a URL like
+  //   `https://example.com/gsd-plan-phase` ends in a known command name and
+  //   would convert incorrectly.
+  // - `(?!\/)` rejects sub-path continuation (`/gsd-foo/bar`).
+  // - `(?!\.[a-z])` rejects file extensions (`.cjs`, `.md`) but PERMITS
+  //   sentence-ending punctuation like `/gsd-help.` because `.` at end of
+  //   string or before whitespace is not followed by a lowercase letter.
+  // - Roster lookup ensures only real commands convert — agent names like
+  //   `gsd-planner` (no leading slash anyway) and unknown tokens pass through.
+  //
+  // GSD commands are always lowercase, so no case-insensitive flag.
+  return content.replace(/(?<![A-Za-z0-9./])\/gsd-([a-z0-9-]+)(?!\/)(?!\.[a-z])/g, (match, commandName) => {
     return commands.has(commandName) ? `/gsd:${commandName}` : match;
   });
 }
@@ -7362,6 +7393,7 @@ if (process.env.GSD_TEST_MODE) {
     convertClaudeAgentToCursorAgent,
     convertClaudeToGeminiMarkdown,
     convertSlashCommandsToGeminiMentions,
+    _resetGsdCommandRoster,
     convertClaudeToGeminiAgent,
     convertClaudeAgentToCodexAgent,
     generateCodexAgentToml,

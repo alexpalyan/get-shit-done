@@ -18,6 +18,7 @@ const { createTempDir, cleanup } = require('./helpers.cjs');
 const {
   convertSlashCommandsToGeminiMentions,
   convertClaudeToGeminiMarkdown,
+  _resetGsdCommandRoster,
   install
 } = require('../bin/install.js');
 
@@ -33,8 +34,25 @@ describe('Gemini Slash Command Namespacing (Regex)', () => {
     assert.strictEqual(convertSlashCommandsToGeminiMentions(input), input);
   });
 
+  // The roster check is the safety property: a token like /gsd-plan-phase IS
+  // a known command name, but when it appears inside a URL path it must NOT
+  // be converted. This pins that the roster check actually fires — a regex-only
+  // approach without a roster would convert this incorrectly.
+  test('preserves URLs even when path contains a KNOWN command name', () => {
+    const input = 'See https://example.com/gsd-plan-phase for context.';
+    assert.strictEqual(convertSlashCommandsToGeminiMentions(input), input);
+  });
+
   test('preserves sub-paths: bin/gsd-tools.cjs', () => {
     const input = 'See bin/gsd-tools.cjs for details.';
+    assert.strictEqual(convertSlashCommandsToGeminiMentions(input), input);
+  });
+
+  test('preserves sub-paths even when leaf is a KNOWN command name', () => {
+    // bin/gsd-plan-phase looks like a known command but is a file path.
+    // The leading / on a sub-path follows a non-slash char so the regex
+    // boundary is the safety net here, not the roster.
+    const input = 'Reference bin/gsd-plan-phase for details.';
     assert.strictEqual(convertSlashCommandsToGeminiMentions(input), input);
   });
 
@@ -58,6 +76,16 @@ describe('Gemini Slash Command Namespacing (Regex)', () => {
     const input = 'Run /gsd-help. Or /gsd-scan!';
     const expected = 'Run /gsd:help. Or /gsd:scan!';
     assert.strictEqual(convertSlashCommandsToGeminiMentions(input), expected);
+  });
+
+  test('roster has loaded — non-empty (would otherwise silently no-op all conversions)', () => {
+    _resetGsdCommandRoster();
+    // First conversion call lazily populates the roster. If it returned an
+    // empty Set (because commands/gsd/ was not found), every conversion
+    // becomes a no-op — exactly the bug this code exists to prevent.
+    const result = convertSlashCommandsToGeminiMentions('Run /gsd-plan-phase.');
+    assert.strictEqual(result, 'Run /gsd:plan-phase.',
+      'Roster failed to load — all /gsd- conversions would silently no-op');
   });
 });
 
